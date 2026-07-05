@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   BrainCircuit,
@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { demoPresets } from "@/lib/config";
 import type { EvidenceIssue, TriageResponse } from "@/lib/triage/types";
+
+const TERMINAL_STATUSES = ["DATASET_PROCESSING_COMPLETED", "DATASET_PROCESSING_ERROR"];
 
 type StatusResponse = {
   repo: string;
@@ -34,6 +36,8 @@ type IngestResponse = {
   remembered: number;
   errors: string[];
   lastIngestAt: string;
+  processingPending: boolean;
+  datasetStatus: string;
 };
 
 const emptyBrief: TriageResponse | null = null;
@@ -48,6 +52,8 @@ export default function Home() {
   const [notice, setNotice] = useState<string>("Ready for local demo.");
   const [dismissed, setDismissed] = useState<number[]>([]);
   const [fallbackDisabled, setFallbackDisabled] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollingRef = useRef(false);
 
   async function refreshStatus() {
     const response = await fetch("/api/status");
@@ -61,7 +67,11 @@ export default function Home() {
       });
     }, 0);
 
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(timeout);
+      if (pollRef.current) clearInterval(pollRef.current);
+      pollingRef.current = false;
+    };
   }, []);
 
   const visibleEvidence = useMemo(() => {
@@ -95,15 +105,52 @@ export default function Home() {
       const data = await response.json();
       setIngest(data);
       setFallbackDisabled(false);
-      setNotice(
-        `Ingest complete from ${data.source}: ${data.remembered}/${data.count} issues remembered.`,
-      );
       await refreshStatus();
+
+      if (data.processingPending) {
+        setNotice(`Ingest queued: ${data.remembered}/${data.count} issues. Processing in Cognee...`);
+        pollingRef.current = true;
+        setBusy("polling");
+        startDatasetPolling();
+        return;
+      } else {
+        setNotice(
+          `Ingest complete from ${data.source}: ${data.remembered}/${data.count} issues remembered.`,
+        );
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Ingest failed.");
     } finally {
-      setBusy(null);
+      if (!pollingRef.current) setBusy(null);
     }
+  }
+
+  function startDatasetPolling() {
+    if (pollRef.current) clearInterval(pollRef.current);
+    let elapsed = 0;
+    pollRef.current = setInterval(async () => {
+      elapsed += 5;
+      try {
+        const res = await fetch("/api/status");
+        const data = await res.json();
+        setStatus(data);
+        if (TERMINAL_STATUSES.includes(data.datasetStatus)) {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          pollingRef.current = false;
+          setBusy(null);
+          setNotice(
+            data.datasetStatus === "DATASET_PROCESSING_COMPLETED"
+              ? `Cognee processing complete. Ready for triage.`
+              : `Cognee processing finished with status: ${data.datasetStatus}.`,
+          );
+        } else {
+          setNotice(`Processing in Cognee... (${elapsed}s elapsed)`);
+        }
+      } catch {
+        // keep polling on transient errors
+      }
+    }, 5000);
   }
 
   async function runTriage(nextTitle = title, nextBody = body) {
@@ -235,6 +282,9 @@ export default function Home() {
         <ProofItem label="Cognee" value={status?.cognee.connected ? "connected" : status?.cognee.detail || "checking"} />
         <ProofItem label="Dataset" value={status?.dataset || "repomind-topoteretes-cognee"} />
         <ProofItem label="Dataset state" value={status?.datasetStatus || "checking"} />
+        {busy === "polling" && (
+          <ProofItem label="Processing" value="background cognition active" />
+        )}
         <ProofItem label="Recall mode" value={brief?.recallMode || "CHUNKS"} />
         <ProofItem label="Recall used" value={brief?.recallUsed ? "yes" : "no"} />
         <ProofItem label="Fallback" value={fallbackState} />

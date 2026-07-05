@@ -21,5 +21,7 @@ export type IngestResult = {
   remembered: number;
   errors: string[];
   lastIngestAt: string;
+  processingPending: boolean;
+  datasetStatus: string;
 };
 

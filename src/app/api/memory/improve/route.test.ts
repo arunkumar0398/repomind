@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const improveDataset = vi.fn();
+const { improveDataset } = vi.hoisted(() => ({
+  improveDataset: vi.fn(),
+}));
 
 vi.mock("@/lib/cognee/client", () => ({
   improveDataset,

@@ -98,13 +98,13 @@ export async function getDatasetOverview(): Promise<DatasetOverview> {
   }
 }
 
-export async function rememberIssueText(text: string, fileName: string): Promise<unknown> {
+export async function rememberIssueText(text: string, fileName: string, background = true): Promise<unknown> {
   const blob = new Blob([text], { type: "text/plain" });
   const form = new FormData();
   form.append("datasetName", appConfig.dataset);
   form.append("data", blob, fileName);
   form.append("node_set", "project_docs");
-  form.append("run_in_background", "true");
+  form.append("run_in_background", String(background));
 
   const response = await fetch(`${appConfig.cogneeBaseUrl}/api/v1/remember`, {
     method: "POST",

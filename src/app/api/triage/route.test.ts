@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const recallIssueDraft = vi.fn();
+const { recallIssueDraft } = vi.hoisted(() => ({
+  recallIssueDraft: vi.fn(),
+}));
 
 vi.mock("@/lib/cognee/client", () => ({
   recallIssueDraft,

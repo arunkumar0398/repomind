@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const checkCogneeHealth = vi.fn();
-const getDatasetOverview = vi.fn();
+const { checkCogneeHealth, getDatasetOverview } = vi.hoisted(() => ({
+  checkCogneeHealth: vi.fn(),
+  getDatasetOverview: vi.fn(),
+}));
 
 vi.mock("@/lib/cognee/client", () => ({
   checkCogneeHealth,
