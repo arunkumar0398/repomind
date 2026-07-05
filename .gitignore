@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /out/
+/.codex-logs
 
 # production
 /build
