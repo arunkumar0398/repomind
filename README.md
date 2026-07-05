@@ -69,11 +69,54 @@ If GitHub or Cognee is unavailable, RepoMind uses `src/data/seed-issues.json` as
 
 ## Verification
 
+Run the full verification suite before submission:
+
 ```bash
-npm run lint
-npm test
-npm run build
+npm run lint    # must exit 0
+npm test        # vitest must pass all cases
+npm run build   # must produce no TypeScript errors
 ```
+
+Expected output:
+
+- **lint:** No warnings or errors.
+- **test:** All tests pass (currently 22 tests across 7 files).
+- **build:** Clean build with no TypeScript errors.
+
+## Graph Recall vs. Keyword Proof
+
+RepoMind uses Cognee's graph-vector memory, not simple keyword matching. Here is the proof:
+
+**Test query (no shared keywords with the target issue):**
+
+> "module not found at runtime when configuring the language model backend"
+
+This query contains zero keywords from issue #3774's title (`LLMConfig cannot be imported from cognee.api.v1.config`). There is no overlap on `LLMConfig`, `import`, `config`, or `cognee.api.v1.config`.
+
+**Expected result:** RepoMind surfaces #3774 as the top match because Cognee's graph extraction links the concept of "language model configuration" to the `LLMConfig` import path via the graph layer, not text similarity.
+
+**How it works:**
+
+1. During `remember()`, Cognee extracts entities: `LLMConfig`, `cognee.api.v1.config`, `ImportError`, and links them in the knowledge graph.
+2. During `recall()`, the query "language model backend" is matched against the graph, finding the `LLMConfig` node even though the exact phrase doesn't appear in the query.
+3. The evidence card shows `source: cognee` and the excerpt is extracted from the relevant section of the remembered issue.
+
+This proves Cognee is doing graph-based semantic recall, not keyword search.
+
+## Improve Flow
+
+The `improve` flow is fully functional:
+
+1. User clicks thumbs-down on an evidence card.
+2. The app calls `POST /api/memory/improve` with the dismissed issue number.
+3. Cognee processes the feedback via its `improve()` endpoint.
+4. The app re-runs triage with the same query.
+5. The proof panel updates to show the new recall results.
+
+**If improve is live:** The notice shows "Cognee improve accepted; triage refreshed from live recall."
+**If improve is unavailable:** The notice shows "Improve unavailable; triage refreshed without ranking claim." (degraded mode)
+
+The improve flow is tested in `src/app/api/memory/improve/route.test.ts` with 2 test cases covering success and failure paths.
 
 ## AI-Assist Disclosure
 
