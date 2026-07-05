@@ -4,19 +4,20 @@ export async function POST() {
   try {
     const result = await improveDataset();
     return Response.json({
+      live: true,
       status: "ok",
-      message: "Memory updated; re-running triage",
+      message: "Cognee improve accepted; re-running triage",
       result,
     });
   } catch (error) {
     return Response.json(
       {
+        live: false,
         status: "degraded",
-        message: "Improve request could not complete, but triage can still be re-run.",
+        message: "Improve unavailable; re-running recall without ranking claim.",
         error: error instanceof Error ? error.message : "unknown error",
       },
       { status: 200 },
     );
   }
 }
-

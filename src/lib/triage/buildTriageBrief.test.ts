@@ -26,7 +26,56 @@ describe("buildTriageBrief", () => {
 
     expect(brief.verdict).toBe("likely_duplicate");
     expect(brief.evidence[0].number).toBe(3774);
+    expect(brief.evidence[0].source).toBe("cognee");
+    expect(brief.recallSource).toBe("cognee");
+    expect(brief.recallMode).toBe("CHUNKS");
+    expect(brief.recallUsed).toBe(true);
+    expect(brief.fallbackUsed).toBe(false);
+    expect(brief.topRecalledNumbers).toEqual([3774]);
     expect(brief.draftReply).toContain("#3774");
+  });
+
+  it("preserves live Cognee recall order without demo boosts", () => {
+    const brief = buildTriageBrief({
+      title: "LLMConfig import fails",
+      body: "This query would normally boost #3774 in seed fallback.",
+      recallResults: ["Cognee CHUNKS recalled #3757 first, then #3774"],
+      corpus,
+    });
+
+    expect(brief.evidence.map((issue) => issue.number).slice(0, 2)).toEqual([3757, 3774]);
+    expect(brief.evidence.every((issue) => issue.source === "cognee")).toBe(true);
+    expect(brief.fallbackUsed).toBe(false);
+  });
+
+  it("applies demo fallback boosts only when live recall has no known issue ids", () => {
+    const brief = buildTriageBrief({
+      title: "LLMConfig cannot be imported from cognee.api.v1.config",
+      body: "ImportError when importing config.",
+      recallResults: ["Cognee returned context without a known issue number"],
+      corpus,
+    });
+
+    expect(brief.evidence[0].number).toBe(3774);
+    expect(brief.evidence[0].source).toBe("seed_fallback");
+    expect(brief.recallSource).toBe("seed_fallback");
+    expect(brief.recallUsed).toBe(false);
+    expect(brief.fallbackUsed).toBe(true);
+  });
+
+  it("returns no seed evidence when fallback is disabled after forget", () => {
+    const brief = buildTriageBrief({
+      title: "LLMConfig cannot be imported from cognee.api.v1.config",
+      body: "ImportError when importing config.",
+      recallResults: [],
+      corpus,
+      fallbackDisabled: true,
+    });
+
+    expect(brief.verdict).toBe("new_issue");
+    expect(brief.evidence).toEqual([]);
+    expect(brief.recallSource).toBe("none");
+    expect(brief.fallbackUsed).toBe(false);
   });
 
   it("returns duplicate or related for retry evidence with #3757", () => {
@@ -39,6 +88,7 @@ describe("buildTriageBrief", () => {
 
     expect(["likely_duplicate", "related"]).toContain(brief.verdict);
     expect(brief.evidence[0].number).toBe(3757);
+    expect(brief.graphProof).toContain("retry behavior -> neo4j_driver -> #3757");
   });
 
   it("returns duplicate or related for router error evidence with #3748", () => {
@@ -65,4 +115,3 @@ describe("buildTriageBrief", () => {
     expect(brief.evidence).toEqual([]);
   });
 });
-

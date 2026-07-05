@@ -1,6 +1,6 @@
 import { extractExcerpt, tokenize } from "./extractExcerpt";
 import type { RepoIssueMemory } from "@/lib/issues/types";
-import type { EvidenceIssue, TriageResponse, Verdict } from "./types";
+import type { EvidenceIssue, EvidenceSource, RecallSource, TriageResponse, Verdict } from "./types";
 
 function objectText(value: unknown): string {
   if (typeof value === "string") return value;
@@ -24,28 +24,41 @@ function issueScore(issue: RepoIssueMemory, query: string): number {
   return matches + targetBoost;
 }
 
-function mergeRecallAndCorpus(
-  query: string,
-  recallResults: unknown[],
-  corpus: RepoIssueMemory[],
-): RepoIssueMemory[] {
+function extractRecallIssueNumbers(recallResults: unknown[]): number[] {
   const recallText = recallResults.map(objectText).join("\n").toLowerCase();
-  const recallIssueNumbers = Array.from(recallText.matchAll(/#?(\d{4})/g))
+  return Array.from(recallText.matchAll(/#?(\d{4})/g))
     .map((match) => Number(match[1]))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((number, index, numbers) => numbers.indexOf(number) === index);
+}
 
+function recalledIssues(recallResults: unknown[], corpus: RepoIssueMemory[]): RepoIssueMemory[] {
+  const recallIssueNumbers = extractRecallIssueNumbers(recallResults);
   const byNumber = new Map(corpus.map((issue) => [issue.number, issue]));
-  const recalled = recallIssueNumbers
+  return recallIssueNumbers
     .map((number) => byNumber.get(number))
     .filter((issue): issue is RepoIssueMemory => Boolean(issue));
+}
 
-  const ranked = corpus
+function fallbackIssues(query: string, corpus: RepoIssueMemory[]): RepoIssueMemory[] {
+  return corpus
     .map((issue) => ({ issue, score: issueScore(issue, query) }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score)
-    .map(({ issue }) => issue);
+    .map(({ issue }) => issue)
+    .slice(0, 4);
+}
 
-  return Array.from(new Map([...recalled, ...ranked].map((issue) => [issue.number, issue])).values()).slice(0, 4);
+function toEvidence(issues: RepoIssueMemory[], query: string, source: EvidenceSource): EvidenceIssue[] {
+  return issues.map((issue) => ({
+    number: issue.number,
+    title: issue.title,
+    state: issue.state,
+    labels: issue.labels,
+    url: issue.url,
+    excerpt: extractExcerpt(issue, query),
+    source,
+  }));
 }
 
 function verdictFor(evidence: EvidenceIssue[]): Verdict {
@@ -59,20 +72,30 @@ export function buildTriageBrief(params: {
   body: string;
   recallResults: unknown[];
   corpus: RepoIssueMemory[];
+  fallbackDisabled?: boolean;
 }): TriageResponse {
   const query = `${params.title}\n${params.body}`.trim();
-  const issues = mergeRecallAndCorpus(query, params.recallResults, params.corpus);
-  const evidence: EvidenceIssue[] = issues.map((issue) => ({
-    number: issue.number,
-    title: issue.title,
-    state: issue.state,
-    labels: issue.labels,
-    url: issue.url,
-    excerpt: extractExcerpt(issue, query),
-  }));
+  const liveIssues = recalledIssues(params.recallResults, params.corpus).slice(0, 4);
+  const topRecalledNumbers = liveIssues.map((issue) => issue.number);
+  let recallSource: RecallSource = "none";
+  let fallbackUsed = false;
+  let evidence: EvidenceIssue[] = [];
+
+  if (liveIssues.length > 0) {
+    recallSource = "cognee";
+    evidence = toEvidence(liveIssues, query, "cognee");
+  } else if (!params.fallbackDisabled) {
+    const fallback = fallbackIssues(query, params.corpus);
+    fallbackUsed = fallback.length > 0;
+    recallSource = fallbackUsed ? "seed_fallback" : "none";
+    evidence = toEvidence(fallback, query, "seed_fallback");
+  }
 
   const verdict = verdictFor(evidence);
   const top = evidence[0];
+  const graphProof = evidence.some((issue) => issue.number === 3757)
+    ? "Graph signal: retry behavior -> neo4j_driver -> #3757. This is demo narration text derived from the remembered issue, not a separate graph API call."
+    : undefined;
 
   if (!top) {
     return {
@@ -82,7 +105,12 @@ export function buildTriageBrief(params: {
       draftReply:
         "Thanks for the report. I could not find an existing matching issue in the remembered repo history. Could you share a minimal reproduction, affected version, and any relevant logs so we can triage it?",
       evidence: [],
-      recallUsed: params.recallResults.length > 0,
+      recallUsed: false,
+      recallSource,
+      recallMode: "CHUNKS",
+      topRecalledNumbers,
+      fallbackUsed,
+      graphProof,
       warnings: [],
     };
   }
@@ -101,7 +129,12 @@ export function buildTriageBrief(params: {
         : `Link #${top.number}, keep this issue open if the reproduction or affected surface differs, and ask for the missing details.`,
     draftReply: `Thanks for reporting this. This looks ${verdict === "likely_duplicate" ? "like it may already be tracked" : "related to prior repo history"} in #${top.number}: ${top.title}. The matching evidence is: "${top.excerpt}" Could you confirm whether your reproduction follows the same path? If yes, we can continue tracking it in #${top.number}; if not, please share the difference so we can keep this issue open.`,
     evidence,
-    recallUsed: params.recallResults.length > 0,
+    recallUsed: recallSource === "cognee",
+    recallSource,
+    recallMode: "CHUNKS",
+    topRecalledNumbers,
+    fallbackUsed,
+    graphProof,
     warnings: [],
   };
 }

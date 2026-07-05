@@ -2,6 +2,13 @@ import { appConfig } from "@/lib/config";
 
 export type CogneeRecallResult = unknown;
 
+export type DatasetOverview = {
+  exists: boolean;
+  id?: string;
+  status?: string;
+  error?: string;
+};
+
 function cogneeHeaders(json = true): HeadersInit {
   const headers: Record<string, string> = {};
   if (json) headers["Content-Type"] = "application/json";
@@ -32,6 +39,61 @@ export async function checkCogneeHealth(): Promise<{ connected: boolean; detail:
     return {
       connected: false,
       detail: error instanceof Error ? error.message : "Cognee unavailable",
+    };
+  }
+}
+
+function datasetItems(body: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(body)) return body.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null);
+  if (body && typeof body === "object") {
+    const record = body as Record<string, unknown>;
+    const nested = record.datasets || record.data || record.items;
+    if (Array.isArray(nested)) {
+      return nested.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null);
+    }
+  }
+  return [];
+}
+
+export async function getDatasetOverview(): Promise<DatasetOverview> {
+  try {
+    const datasetsResponse = await fetch(`${appConfig.cogneeBaseUrl}/api/v1/datasets`, {
+      headers: cogneeHeaders(false),
+      cache: "no-store",
+    });
+    if (!datasetsResponse.ok) {
+      return { exists: false, error: await readError(datasetsResponse) };
+    }
+
+    const datasetsBody = await datasetsResponse.json();
+    const dataset = datasetItems(datasetsBody).find((item) => item.name === appConfig.dataset);
+    const id = typeof dataset?.id === "string" ? dataset.id : undefined;
+    let status = typeof dataset?.status === "string" ? dataset.status : undefined;
+
+    const statusResponse = await fetch(`${appConfig.cogneeBaseUrl}/api/v1/datasets/status`, {
+      headers: cogneeHeaders(false),
+      cache: "no-store",
+    });
+    if (statusResponse.ok) {
+      const statusBody = await statusResponse.json();
+      if (id && statusBody && typeof statusBody === "object") {
+        const byId = (statusBody as Record<string, unknown>)[id];
+        if (typeof byId === "string") status = byId;
+        if (byId && typeof byId === "object" && typeof (byId as Record<string, unknown>).status === "string") {
+          status = (byId as Record<string, string>).status;
+        }
+      }
+    }
+
+    return {
+      exists: Boolean(dataset),
+      id,
+      status,
+    };
+  } catch (error) {
+    return {
+      exists: false,
+      error: error instanceof Error ? error.message : "dataset status unavailable",
     };
   }
 }

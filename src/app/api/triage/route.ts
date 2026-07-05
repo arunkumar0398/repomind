@@ -6,6 +6,7 @@ import { buildTriageBrief } from "@/lib/triage/buildTriageBrief";
 const TriageRequest = z.object({
   title: z.string().trim().min(1),
   body: z.string().trim().min(1),
+  fallbackDisabled: z.boolean().optional().default(false),
 });
 
 export async function POST(request: Request) {
@@ -33,8 +34,14 @@ export async function POST(request: Request) {
     body: parsed.data.body,
     recallResults,
     corpus: getSeedIssues(),
+    fallbackDisabled: parsed.data.fallbackDisabled,
   });
+
+  if (parsed.data.fallbackDisabled && !response.recallUsed) {
+    warnings.push("Seed fallback disabled for lifecycle validation. Run ingest to re-enable fallback evidence.");
+  } else if (recallResults.length > 0 && !response.recallUsed && response.fallbackUsed) {
+    warnings.push("Cognee recall returned no known issue IDs; using seed evidence fallback.");
+  }
 
   return Response.json({ ...response, warnings: [...response.warnings, ...warnings] });
 }
-

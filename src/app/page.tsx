@@ -22,6 +22,9 @@ type StatusResponse = {
   dataset: string;
   cognee: { connected: boolean; detail: string };
   seedIssueCount: number;
+  curatedIssueCount: number;
+  datasetExists: boolean;
+  datasetStatus: string;
 };
 
 type IngestResponse = {
@@ -44,6 +47,7 @@ export default function Home() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("Ready for local demo.");
   const [dismissed, setDismissed] = useState<number[]>([]);
+  const [fallbackDisabled, setFallbackDisabled] = useState(false);
 
   async function refreshStatus() {
     const response = await fetch("/api/status");
@@ -69,6 +73,20 @@ export default function Home() {
     });
   }, [brief, dismissed]);
 
+  const issueCountValue = ingest
+    ? `${ingest.remembered}/${ingest.count}`
+    : status?.datasetExists
+      ? `${status.curatedIssueCount || status.seedIssueCount} curated`
+      : "not ingested";
+
+  const fallbackState = fallbackDisabled
+    ? "disabled"
+    : brief?.fallbackUsed
+      ? "seed fallback used"
+      : brief
+        ? "not used"
+        : "waiting";
+
   async function ingestIssues() {
     setBusy("ingest");
     setNotice("Remembering curated GitHub issues in Cognee...");
@@ -76,6 +94,7 @@ export default function Home() {
       const response = await fetch("/api/issues/ingest", { method: "POST" });
       const data = await response.json();
       setIngest(data);
+      setFallbackDisabled(false);
       setNotice(
         `Ingest complete from ${data.source}: ${data.remembered}/${data.count} issues remembered.`,
       );
@@ -94,7 +113,7 @@ export default function Home() {
       const response = await fetch("/api/triage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: nextTitle, body: nextBody }),
+        body: JSON.stringify({ title: nextTitle, body: nextBody, fallbackDisabled }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Triage failed.");
@@ -110,11 +129,18 @@ export default function Home() {
   async function improveAndRerun(issue: EvidenceIssue) {
     setDismissed((current) => Array.from(new Set([...current, issue.number])));
     setBusy(`improve-${issue.number}`);
-    setNotice("Memory updated; re-running triage");
+    setNotice("Submitting Cognee improve feedback; re-running triage");
     try {
-      await fetch("/api/memory/improve", { method: "POST" });
+      const response = await fetch("/api/memory/improve", { method: "POST" });
+      const data = await response.json();
+      const live = response.ok && data.live === true;
+      setNotice(live ? data.message : "Improve unavailable; re-running recall without ranking claim.");
       await runTriage();
-      setNotice("Memory updated; triage re-run with a fresh Cognee recall request.");
+      setNotice(
+        live
+          ? "Cognee improve accepted; triage refreshed from live recall."
+          : "Improve unavailable; triage refreshed without ranking claim.",
+      );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Improve request failed.");
     } finally {
@@ -131,7 +157,10 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error || "Forget failed.");
       setBrief(null);
       setIngest(null);
-      setNotice("Dataset cleared. Re-run triage to show no usable live memory or seed fallback warning.");
+      setFallbackDisabled(true);
+      setDismissed([]);
+      setNotice("Cognee dataset cleared; seed fallback disabled until ingest is run again.");
+      await refreshStatus();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Forget failed.");
     } finally {
@@ -185,8 +214,8 @@ export default function Home() {
         />
         <StatusItem
           icon={<BrainCircuit size={16} />}
-          label="Issues"
-          value={ingest ? `${ingest.remembered}/${ingest.count}` : "0"}
+          label="Corpus"
+          value={issueCountValue}
         />
       </section>
 
@@ -200,6 +229,20 @@ export default function Home() {
           Forget Dataset
         </button>
         <p>{notice}</p>
+      </section>
+
+      <section className="proof-panel" aria-label="Cognee proof">
+        <ProofItem label="Cognee" value={status?.cognee.connected ? "connected" : status?.cognee.detail || "checking"} />
+        <ProofItem label="Dataset" value={status?.dataset || "repomind-topoteretes-cognee"} />
+        <ProofItem label="Dataset state" value={status?.datasetStatus || "checking"} />
+        <ProofItem label="Recall mode" value={brief?.recallMode || "CHUNKS"} />
+        <ProofItem label="Recall used" value={brief?.recallUsed ? "yes" : "no"} />
+        <ProofItem label="Fallback" value={fallbackState} />
+        <ProofItem
+          label="Top recalled"
+          value={brief?.topRecalledNumbers.length ? brief.topRecalledNumbers.map((number) => `#${number}`).join(", ") : "none yet"}
+        />
+        {brief?.graphProof && <p className="graph-proof">{brief.graphProof}</p>}
       </section>
 
       <section className="workspace">
@@ -276,7 +319,12 @@ export default function Home() {
             visibleEvidence.map((issue) => (
               <article className={dismissed.includes(issue.number) ? "evidence muted" : "evidence"} key={issue.number}>
                 <div className="evidence-top">
-                  <span>#{issue.number}</span>
+                  <div className="evidence-identity">
+                    <span>#{issue.number}</span>
+                    <strong className={`source-badge ${issue.source}`}>
+                      {issue.source === "cognee" ? "Cognee" : "Seed fallback"}
+                    </strong>
+                  </div>
                   <a href={issue.url} target="_blank" rel="noreferrer">
                     GitHub <ExternalLink size={14} />
                   </a>
@@ -320,6 +368,15 @@ function StatusItem({
         <span>{label}</span>
         <strong>{value}</strong>
       </div>
+    </div>
+  );
+}
+
+function ProofItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="proof-item">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
