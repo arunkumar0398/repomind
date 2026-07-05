@@ -1,15 +1,18 @@
 import { z } from "zod";
 import { improveDataset } from "@/lib/cognee/client";
+import { verifyApiKey } from "@/lib/auth";
 
 const ImproveRequest = z.object({
   dismissedIssueNumber: z.number().optional(),
 });
 
-export async function POST(request?: Request) {
-  const parsed = request
-    ? ImproveRequest.safeParse(await request.json().catch(() => ({})))
-    : { success: true as const, data: {} };
+export async function POST(request: Request) {
+  const auth = verifyApiKey(request);
+  if (!auth.ok) {
+    return Response.json({ error: auth.error }, { status: 401 });
+  }
 
+  const parsed = ImproveRequest.safeParse(await request.json().catch(() => ({})));
   const dismissedIssueNumber = parsed.success ? parsed.data.dismissedIssueNumber : undefined;
 
   try {

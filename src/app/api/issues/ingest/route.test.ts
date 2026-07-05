@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { rememberIssueText, getDatasetOverview, fetchCuratedIssues } = vi.hoisted(() => ({
+const { rememberIssueText, getDatasetOverview, fetchCuratedIssues, verifyApiKey } = vi.hoisted(() => ({
   rememberIssueText: vi.fn(),
   getDatasetOverview: vi.fn(),
   fetchCuratedIssues: vi.fn(),
+  verifyApiKey: vi.fn(),
 }));
 
 vi.mock("@/lib/cognee/client", () => ({
@@ -19,11 +20,21 @@ vi.mock("@/lib/issues/formatIssueMemory", () => ({
   formatIssueMemory: vi.fn((issue: { number: number }) => `formatted-${issue.number}`),
 }));
 
+vi.mock("@/lib/auth", () => ({
+  verifyApiKey,
+}));
+
+function makePostRequest() {
+  return new Request("http://localhost/api/issues/ingest", { method: "POST" });
+}
+
 describe("/api/issues/ingest", () => {
   beforeEach(() => {
     rememberIssueText.mockReset();
     getDatasetOverview.mockReset();
     fetchCuratedIssues.mockReset();
+    verifyApiKey.mockReset();
+    verifyApiKey.mockReturnValue({ ok: true });
   });
 
   it("returns remembered count and processingPending when dataset is not terminal", async () => {
@@ -38,7 +49,7 @@ describe("/api/issues/ingest", () => {
     getDatasetOverview.mockResolvedValue({ exists: true, status: "DATASET_PROCESSING" });
 
     const { POST } = await import("./route");
-    const response = await POST();
+    const response = await POST(makePostRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -58,7 +69,7 @@ describe("/api/issues/ingest", () => {
     getDatasetOverview.mockResolvedValue({ exists: true, status: "DATASET_PROCESSING_COMPLETED" });
 
     const { POST } = await import("./route");
-    const response = await POST();
+    const response = await POST(makePostRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -76,7 +87,7 @@ describe("/api/issues/ingest", () => {
     getDatasetOverview.mockRejectedValue(new Error("connection refused"));
 
     const { POST } = await import("./route");
-    const response = await POST();
+    const response = await POST(makePostRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -97,7 +108,7 @@ describe("/api/issues/ingest", () => {
     getDatasetOverview.mockResolvedValue({ exists: false });
 
     const { POST } = await import("./route");
-    const response = await POST();
+    const response = await POST(makePostRequest());
     const body = await response.json();
 
     expect(response.status).toBe(207);
@@ -114,12 +125,25 @@ describe("/api/issues/ingest", () => {
     getDatasetOverview.mockResolvedValue({ exists: true, status: "DATASET_PROCESSING_COMPLETED" });
 
     const { POST } = await import("./route");
-    await POST();
+    await POST(makePostRequest());
 
     expect(rememberIssueText).toHaveBeenCalledWith(
       expect.any(String),
       "cognee-issue-3.txt",
       false,
     );
+  });
+
+  it("returns 401 when API key is invalid", async () => {
+    verifyApiKey.mockReturnValue({ ok: false, error: "Invalid key" });
+    fetchCuratedIssues.mockResolvedValue({ source: "github", issues: [] });
+
+    const { POST } = await import("./route");
+    const response = await POST(makePostRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body.error).toBe("Invalid key");
+    expect(fetchCuratedIssues).not.toHaveBeenCalled();
   });
 });

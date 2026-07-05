@@ -80,7 +80,7 @@ npm run build   # must produce no TypeScript errors
 Expected output:
 
 - **lint:** No warnings or errors.
-- **test:** All tests pass (currently 22 tests across 7 files).
+- **test:** All tests pass (currently 25 tests across 7 files).
 - **build:** Clean build with no TypeScript errors.
 
 ## Graph Recall vs. Keyword Proof

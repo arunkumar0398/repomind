@@ -128,8 +128,17 @@ export default function Home() {
   function startDatasetPolling() {
     if (pollRef.current) clearInterval(pollRef.current);
     let elapsed = 0;
+    const maxElapsed = 300;
     pollRef.current = setInterval(async () => {
       elapsed += 5;
+      if (elapsed > maxElapsed) {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        pollingRef.current = false;
+        setBusy(null);
+        setNotice("Polling timed out after 5 minutes. Cognee may still be processing.");
+        return;
+      }
       try {
         const res = await fetch("/api/status");
         const data = await res.json();
@@ -228,8 +237,12 @@ export default function Home() {
 
   async function copyReply() {
     if (!brief?.draftReply) return;
-    await navigator.clipboard.writeText(brief.draftReply);
-    setNotice("One copy, paste into GitHub, done.");
+    try {
+      await navigator.clipboard.writeText(brief.draftReply);
+      setNotice("One copy, paste into GitHub, done.");
+    } catch {
+      setNotice("Copy failed. Please select and copy the draft manually.");
+    }
   }
 
   return (

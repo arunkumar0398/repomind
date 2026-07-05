@@ -15,6 +15,9 @@ function issueScore(issue: RepoIssueMemory, query: string): number {
   const terms = tokenize(query);
   const text = `${issue.number} ${issue.title} ${issue.body} ${issue.comments.join(" ")}`.toLowerCase();
   const matches = terms.reduce((total, term) => total + (text.includes(term) ? 1 : 0), 0);
+  // DEMO-ONLY: Hardcoded boosts for the 3 curated demo issues (#3774, #3757, #3748).
+  // These ensure the demo presets always surface the expected issues.
+  // Remove or gate behind a DEMO_MODE flag for production use.
   const targetBoost =
     (/llmconfig|api\.v1\.config|import/i.test(query) && issue.number === 3774) ||
     (/deadlock|retry|databaseunavailable|neo4j/i.test(query) && issue.number === 3757) ||
