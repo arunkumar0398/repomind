@@ -1,12 +1,27 @@
+import { z } from "zod";
 import { improveDataset } from "@/lib/cognee/client";
+import { verifyApiKey } from "@/lib/auth";
 
-export async function POST() {
+const ImproveRequest = z.object({
+  dismissedIssueNumber: z.number().optional(),
+});
+
+export async function POST(request: Request) {
+  const auth = verifyApiKey(request);
+  if (!auth.ok) {
+    return Response.json({ error: auth.error }, { status: 401 });
+  }
+
+  const parsed = ImproveRequest.safeParse(await request.json().catch(() => ({})));
+  const dismissedIssueNumber = parsed.success ? parsed.data.dismissedIssueNumber : undefined;
+
   try {
     const result = await improveDataset();
     return Response.json({
       live: true,
       status: "ok",
-      message: "Cognee improve accepted; re-running triage",
+      message: "Cognee improve accepted; re-running triage with refreshed memory.",
+      dismissedIssueNumber,
       result,
     });
   } catch (error) {
@@ -16,6 +31,7 @@ export async function POST() {
         status: "degraded",
         message: "Improve unavailable; re-running recall without ranking claim.",
         error: error instanceof Error ? error.message : "unknown error",
+        dismissedIssueNumber,
       },
       { status: 200 },
     );

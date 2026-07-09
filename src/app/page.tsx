@@ -128,8 +128,17 @@ export default function Home() {
   function startDatasetPolling() {
     if (pollRef.current) clearInterval(pollRef.current);
     let elapsed = 0;
+    const maxElapsed = 300;
     pollRef.current = setInterval(async () => {
       elapsed += 5;
+      if (elapsed > maxElapsed) {
+        clearInterval(pollRef.current!);
+        pollRef.current = null;
+        pollingRef.current = false;
+        setBusy(null);
+        setNotice("Polling timed out after 5 minutes. Cognee may still be processing.");
+        return;
+      }
       try {
         const res = await fetch("/api/status");
         const data = await res.json();
@@ -178,7 +187,11 @@ export default function Home() {
     setBusy(`improve-${issue.number}`);
     setNotice("Submitting Cognee improve feedback; re-running triage");
     try {
-      const response = await fetch("/api/memory/improve", { method: "POST" });
+      const response = await fetch("/api/memory/improve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dismissedIssueNumber: issue.number }),
+      });
       const data = await response.json();
       const live = response.ok && data.live === true;
       setNotice(live ? data.message : "Improve unavailable; re-running recall without ranking claim.");
@@ -224,8 +237,12 @@ export default function Home() {
 
   async function copyReply() {
     if (!brief?.draftReply) return;
-    await navigator.clipboard.writeText(brief.draftReply);
-    setNotice("One copy, paste into GitHub, done.");
+    try {
+      await navigator.clipboard.writeText(brief.draftReply);
+      setNotice("One copy, paste into GitHub, done.");
+    } catch {
+      setNotice("Copy failed. Please select and copy the draft manually.");
+    }
   }
 
   return (
@@ -327,6 +344,11 @@ export default function Home() {
             <span>Maintainer Triage Brief</span>
             {brief && <strong className={`verdict ${brief.verdict}`}>{brief.verdict.replace("_", " ")}</strong>}
           </div>
+          {fallbackDisabled && (
+            <div className="fallback-banner" style={{ padding: "12px", background: "#fef3c7", border: "1px solid #f59e0b", borderRadius: "6px", marginBottom: "12px", fontSize: "14px" }}>
+              <strong>Memory cleared</strong> — no evidence available. Re-ingest issues to restore triage accuracy.
+            </div>
+          )}
           {brief ? (
             <>
               <div className="brief-block">

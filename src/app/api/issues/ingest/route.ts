@@ -2,11 +2,16 @@ import { appConfig } from "@/lib/config";
 import { rememberIssueText, getDatasetOverview } from "@/lib/cognee/client";
 import { fetchCuratedIssues } from "@/lib/issues/github";
 import { formatIssueMemory } from "@/lib/issues/formatIssueMemory";
+import { verifyApiKey } from "@/lib/auth";
 import type { IngestResult } from "@/lib/issues/types";
 
 const TERMINAL_STATUSES = ["DATASET_PROCESSING_COMPLETED", "DATASET_PROCESSING_ERROR"];
 
-export async function POST() {
+export async function POST(request: Request) {
+  const auth = verifyApiKey(request);
+  if (!auth.ok) {
+    return Response.json({ error: auth.error }, { status: 401 });
+  }
   const { source, issues } = await fetchCuratedIssues();
   const errors: string[] = [];
   let remembered = 0;

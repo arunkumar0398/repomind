@@ -9,6 +9,8 @@ export type DatasetOverview = {
   error?: string;
 };
 
+const FETCH_TIMEOUT_MS = 15000;
+
 function cogneeHeaders(json = true): HeadersInit {
   const headers: Record<string, string> = {};
   if (json) headers["Content-Type"] = "application/json";
@@ -25,9 +27,19 @@ async function readError(response: Response): Promise<string> {
   }
 }
 
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function checkCogneeHealth(): Promise<{ connected: boolean; detail: string }> {
   try {
-    const response = await fetch(`${appConfig.cogneeBaseUrl}/health`, {
+    const response = await fetchWithTimeout(`${appConfig.cogneeBaseUrl}/health`, {
       headers: cogneeHeaders(false),
       cache: "no-store",
     });
@@ -57,7 +69,7 @@ function datasetItems(body: unknown): Array<Record<string, unknown>> {
 
 export async function getDatasetOverview(): Promise<DatasetOverview> {
   try {
-    const datasetsResponse = await fetch(`${appConfig.cogneeBaseUrl}/api/v1/datasets`, {
+    const datasetsResponse = await fetchWithTimeout(`${appConfig.cogneeBaseUrl}/api/v1/datasets`, {
       headers: cogneeHeaders(false),
       cache: "no-store",
     });
@@ -70,7 +82,7 @@ export async function getDatasetOverview(): Promise<DatasetOverview> {
     const id = typeof dataset?.id === "string" ? dataset.id : undefined;
     let status = typeof dataset?.status === "string" ? dataset.status : undefined;
 
-    const statusResponse = await fetch(`${appConfig.cogneeBaseUrl}/api/v1/datasets/status`, {
+    const statusResponse = await fetchWithTimeout(`${appConfig.cogneeBaseUrl}/api/v1/datasets/status`, {
       headers: cogneeHeaders(false),
       cache: "no-store",
     });
@@ -106,7 +118,7 @@ export async function rememberIssueText(text: string, fileName: string, backgrou
   form.append("node_set", "project_docs");
   form.append("run_in_background", String(background));
 
-  const response = await fetch(`${appConfig.cogneeBaseUrl}/api/v1/remember`, {
+  const response = await fetchWithTimeout(`${appConfig.cogneeBaseUrl}/api/v1/remember`, {
     method: "POST",
     headers: cogneeHeaders(false),
     body: form,
@@ -120,7 +132,7 @@ export async function rememberIssueText(text: string, fileName: string, backgrou
 }
 
 export async function recallIssueDraft(query: string, topK = 8): Promise<CogneeRecallResult[]> {
-  const response = await fetch(`${appConfig.cogneeBaseUrl}/api/v1/recall`, {
+  const response = await fetchWithTimeout(`${appConfig.cogneeBaseUrl}/api/v1/recall`, {
     method: "POST",
     headers: cogneeHeaders(),
     body: JSON.stringify({
@@ -142,7 +154,7 @@ export async function recallIssueDraft(query: string, topK = 8): Promise<CogneeR
 }
 
 export async function improveDataset(): Promise<unknown> {
-  const response = await fetch(`${appConfig.cogneeBaseUrl}/api/v1/improve`, {
+  const response = await fetchWithTimeout(`${appConfig.cogneeBaseUrl}/api/v1/improve`, {
     method: "POST",
     headers: cogneeHeaders(),
     body: JSON.stringify({ dataset_name: appConfig.dataset }),
@@ -156,7 +168,7 @@ export async function improveDataset(): Promise<unknown> {
 }
 
 export async function forgetDataset(): Promise<unknown> {
-  const response = await fetch(`${appConfig.cogneeBaseUrl}/api/v1/forget`, {
+  const response = await fetchWithTimeout(`${appConfig.cogneeBaseUrl}/api/v1/forget`, {
     method: "POST",
     headers: cogneeHeaders(),
     body: JSON.stringify({ dataset: appConfig.dataset }),
